@@ -262,7 +262,7 @@ checkkmode(I, K) ->
             Count = uint8(Aux bsr 30),
 
             Id0 = Aux bsr 20 band 16#3ff,
-			% io:format("AUX: ~p~n", [Id0]),
+            % io:format("AUX: ~p~n", [Id0]),
             K0 = lists:nth(Id0 + 1, K),
             % io:format("K0: ~p~n", [I3#inst.k0]),
 
@@ -306,6 +306,9 @@ checkkmode(I, K) ->
 
 rByte(<<B:8, Rest/binary>>) ->
     {B, Rest}.
+
+skipByte(<<_:8, Rest/binary>>) ->
+    Rest.
 
 rBool(<<B:8, Rest/binary>>) ->
     {B /= 0, Rest}.
@@ -496,6 +499,54 @@ getKs(Binary, StringList, Sizek, Ks) ->
 getKs(Binary, StringList, Sizek) ->
     getKs(Binary, StringList, Sizek, []).
 
+getProtoIds(Binary, 0, ProtoIds) ->
+    {ProtoIds, Binary};
+getProtoIds(Binary, Count, ProtoIds) ->
+    {ProtoId, Rest} = rVarInt(Binary),
+    getProtoIds(Rest, Count - 1, ProtoIds ++ [ProtoId]).
+
+getProtoIds(Binary) ->
+    {Sizep, Rest} = rVarInt(Binary),
+    getProtoIds(Rest, [], Sizep).
+
+readLineInfo(Binary, Sizecode) ->
+    {Linegaplog2, Rest1} = rByte(Binary),
+
+    {Lineinfo, Rest2} = readLineInfoL(Rest1, Sizecode),
+
+    Intervals = (Sizecode - 1) bsr Linegaplog2 + 1,
+
+    {Abslineinfo, Rest3} = readLineInfoAbs(Rest2, Intervals),
+
+    lists:map(
+        fun({Index, Value}) ->
+            lists:nth(Index > Linegaplog2, Abslineinfo) + Value
+        end,
+        lists:enumerate(Abslineinfo)
+    ).
+
+skipDebugInfoL(Binary, 0) ->
+    Binary;
+skipDebugInfoL(Binary, Size) ->
+    {Rest1, _} = skipVarInt(Binary),
+    {Rest2, _} = skipVarInt(Rest1),
+    {Rest3, _} = skipVarInt(Rest2),
+    skipDebugInfoL(skipByte(Rest3), Size - 1).
+
+skipDebugInfoUpvalues(Binary, 0) ->
+    Binary;
+skipDebugInfoUpvalues(Binary, Size) ->
+    skipDebugInfoUpvalues(skipVarInt(Binary), Size - 1).
+
+skipDebugInfo(Binary) ->
+    {Sizel, Rest1} = rVarInt(Binary),
+    % io:format("Debug info size: ~p~n", [Size]),
+    Rest2 = skipDebugInfoL(Rest1, Sizel),
+
+    {Sizeupvals, Rest3} = rVarInt(Rest2),
+    % io:format("Upvalues size: ~p~n", [Sizeupvals]),
+    skipDebugInfoUpvalues(Rest3, Sizeupvals).
+
 readProto(Binary, StringList) ->
     <<MaxStackSize:8, NumParams:8, Nups:8, Rest3/binary>> = Binary,
 
@@ -506,8 +557,8 @@ readProto(Binary, StringList) ->
     % rest7 looks good here
 
     io:format("Sizecode: ~p~n", [Sizecode]),
-    {Code, Rest8} = readInsts(Rest7, Sizecode),
-    io:format("Code: ~p~n", [Code]),
+    {Code1, Rest8} = readInsts(Rest7, Sizecode),
+    io:format("Code: ~p~n", [Code1]),
 
     {Sizek, Rest9} = rVarInt(Rest8),
 
@@ -518,17 +569,50 @@ readProto(Binary, StringList) ->
             io:format("Checking inst - aux: ~p kmode: ~p~n", [I#inst.aux, I#inst.kMode]),
             checkkmode(I, K)
         end,
-        Code
+        Code1
     ),
-	io:format("Rest: ~p~n", [Rest10]),
+    io:format("Rest: ~p~n", [Rest10]),
+
+    {Protos, Rest11} = getProtoIds(Rest10),
+
+    Rest12 = skipVarInt(Rest11),
+    {Dbgnamei, Rest13} = rVarInt(Rest12),
+    Dbgname =
+        case Dbgnamei of
+            0 -> "(??)";
+            _ -> lists:nth(Dbgnamei, StringList)
+        end,
+
+    {LineInfoEnabled, Rest14} = rBool(Rest13),
+    {InstLineInfo, Rest15} =
+        case LineInfoEnabled of
+            true ->
+                {LineInfo, Rest} = readLineInfo(Rest14, Sizecode),
+                {LineInfo, Rest};
+            _ ->
+                {[], Rest14}
+        end,
+
+    {DebugInfoEnabled, Rest16} = rBool(Rest15),
+    Rest17 =
+        case DebugInfoEnabled of
+            true ->
+                skipDebugInfo(Rest16);
+            _ ->
+                Rest16
+        end,
 
     {
         #proto{
             maxStackSize = MaxStackSize,
             numParams = NumParams,
-            nups = Nups
+            nups = Nups,
+            protos = Protos,
+            dbgname = Dbgname,
+            code = Code2,
+            instLineInfo = InstLineInfo
         },
-        Rest10
+        Rest17
     }.
 
 readProtos(Binary, _, 0, Protos) ->
