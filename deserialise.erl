@@ -237,13 +237,81 @@ opinfo(Opcode) ->
     ],
     lists:nth(Opcode + 1, Opcodes).
 
+checkkmode(I, K) ->
+    Aux = I#inst.aux,
+    % io:format("Aux: ~p KMode: ~p~n", [Aux, I#inst.kMode]),
+    case I#inst.kMode of
+        0 ->
+            I;
+        % AUX
+        1 ->
+            if
+                Aux < length(K) ->
+                    I#inst{k = lists:nth(Aux - 1, K)};
+                true ->
+                    I
+            end;
+        % C
+        2 ->
+            I#inst{k = lists:nth(I#inst.c - 1, K)};
+        % D
+        3 ->
+            I#inst{k = lists:nth(I#inst.d - 1, K)};
+        % AUX import
+        4 ->
+            Count = uint8(Aux bsr 30),
+
+            Id0 = Aux bsr 20 band 16#3ff,
+			% io:format("AUX: ~p~n", [Id0]),
+            K0 = lists:nth(Id0 + 1, K),
+            % io:format("K0: ~p~n", [I3#inst.k0]),
+
+            if
+                Count < 2 ->
+                    I#inst{kc = Count, k0 = K0};
+                true ->
+                    Id1 = Aux bsr 10 band 16#3ff,
+                    K1 = lists:nth(Id1 + 1, K),
+
+                    if
+                        Count < 3 ->
+                            I#inst{kc = Count, k0 = K0, k1 = K1};
+                        true ->
+                            Id2 = Aux band 16#3ff,
+                            K2 = lists:nth(Id2 + 1, K),
+
+                            I#inst{kc = Count, k0 = K0, k1 = K1, k2 = K2}
+                    end
+            end;
+        % AUX boolean low 1 bit
+        5 ->
+            I#inst{
+                k = Aux band 1 == 1,
+                kn = Aux bsr 31 == 1
+            };
+        % AUX boolean low 24 bits
+        6 ->
+            I#inst{
+                k = Aux band (1 bsl 24 - 1),
+                kn = Aux bsr 31 == 1
+            };
+        % B
+        7 ->
+            I#inst{k = lists:nth(I#inst.b - 1, K)};
+        % AUX number low 16 bits ig
+        8 ->
+            % forgloop
+            I#inst{k = Aux band 16}
+    end.
+
 rByte(<<B:8, Rest/binary>>) ->
     {B, Rest}.
 
 rBool(<<B:8, Rest/binary>>) ->
     {B /= 0, Rest}.
 
-rUint32(<<W:32, Rest/binary>>) ->
+% yes the endianness matters here
+rUint32(<<W:32/little, Rest/binary>>) ->
     {W, Rest}.
 
 skipUint32(<<_:32, Rest/binary>>) ->
@@ -375,10 +443,10 @@ readInsts(Binary, Sizecode, Code) ->
     case readInst(Binary) of
         {Insts, true, Rest} ->
             % io:format("Insts (aux):   ~p~n", [Insts]),
-            readInsts(Rest, Sizecode - 2, Insts ++ Code);
+            readInsts(Rest, Sizecode - 2, Code ++ Insts);
         {Insts, false, Rest} ->
             % io:format("Insts (noaux): ~p~n", [Insts]),
-            readInsts(Rest, Sizecode - 1, Insts ++ Code)
+            readInsts(Rest, Sizecode - 1, Code ++ Insts)
     end.
 
 readInsts(Binary, Sizecode) ->
@@ -429,9 +497,7 @@ getKs(Binary, StringList, Sizek) ->
     getKs(Binary, StringList, Sizek, []).
 
 readProto(Binary, StringList) ->
-    {MaxStackSize, Rest1} = rByte(Binary),
-    {NumParams, Rest2} = rByte(Rest1),
-    {Nups, Rest3} = rByte(Rest2),
+    <<MaxStackSize:8, NumParams:8, Nups:8, Rest3/binary>> = Binary,
 
     <<_:16, Rest4/binary>> = Rest3,
     {Typesize, Rest5} = rVarInt(Rest4),
@@ -439,14 +505,31 @@ readProto(Binary, StringList) ->
     {Sizecode, Rest7} = rVarInt(Rest6),
     % rest7 looks good here
 
+    io:format("Sizecode: ~p~n", [Sizecode]),
     {Code, Rest8} = readInsts(Rest7, Sizecode),
+    io:format("Code: ~p~n", [Code]),
 
     {Sizek, Rest9} = rVarInt(Rest8),
 
     {K, Rest10} = getKs(Rest9, StringList, Sizek),
-    io:format("Rest: ~p~n", [Rest10]),
 
-    {1, Rest10}.
+    Code2 = lists:map(
+        fun(I) ->
+            io:format("Checking inst - aux: ~p kmode: ~p~n", [I#inst.aux, I#inst.kMode]),
+            checkkmode(I, K)
+        end,
+        Code
+    ),
+	io:format("Rest: ~p~n", [Rest10]),
+
+    {
+        #proto{
+            maxStackSize = MaxStackSize,
+            numParams = NumParams,
+            nups = Nups
+        },
+        Rest10
+    }.
 
 readProtos(Binary, _, 0, Protos) ->
     {Protos, Binary};
@@ -476,13 +559,13 @@ main() ->
         6 -> ok;
         _ -> error("the version of the provided bytecode is unsupported")
     end,
-    io:format("Luau Version: ~p~n", [LuauVersion]),
+    % io:format("Luau Version: ~p~n", [LuauVersion]),
 
     case TypesVersion of
         3 -> ok;
         _ -> error("the types version of the provided bytecode is unsupported")
     end,
-    io:format("Types Version: ~p~n", [TypesVersion]),
+    % io:format("Types Version: ~p~n", [TypesVersion]),
 
     {StringCount, Rest2} = rVarInt(Rest1),
     % io:format("String count: ~p~n", [StringCount]),
