@@ -29,6 +29,8 @@
     nups = 0
 }).
 
+-record(vector, {x = 0, y = 0, z = 0, w = 0}).
+
 uint8(X) ->
     <<R:8>> = <<X:8>>,
     R.
@@ -241,11 +243,17 @@ rByte(<<B:8, Rest/binary>>) ->
 rBool(<<B:8, Rest/binary>>) ->
     {B /= 0, Rest}.
 
-rUint32(<<W:32/little, Rest/binary>>) ->
+rUint32(<<W:32, Rest/binary>>) ->
     {W, Rest}.
 
 skipUint32(<<_:32, Rest/binary>>) ->
     Rest.
+
+rVector(<<X:32/float, Y:32/float, Z:32/float, W:32/float, Rest/binary>>) ->
+    {#vector{x = X, y = Y, z = Z, w = W}, Rest}.
+
+rFloat64(<<F:64/float, Rest/binary>>) ->
+    {F, Rest}.
 
 rVarInt(Binary, I, R) ->
     <<V:8, Rest/binary>> = Binary,
@@ -273,6 +281,16 @@ skipVarInt(<<V:8, Rest/binary>>, I) ->
 skipVarInt(Binary) ->
     {Rest, _} = skipVarInt(Binary, 0),
     Rest.
+
+skipTable(Binary, 0) ->
+    Binary;
+skipTable(Binary, Size) ->
+    Rest = skipVarInt(Binary),
+    skipTable(Rest, Size - 1).
+
+skipTable(Binary) ->
+    {Size, Rest} = rVarInt(Binary),
+    skipTable(Rest, Size).
 
 rString(Binary) ->
     {Size, Rest} = rVarInt(Binary),
@@ -332,7 +350,7 @@ readInst(Binary) ->
             0 ->
                 {0, 0, 0, 0}
         end,
-	% io:format("Opcode: ~p, A: ~p, B: ~p, C: ~p, D: ~p~n", [Opcode, A, B, C, D]),
+    % io:format("Opcode: ~p, A: ~p, B: ~p, C: ~p, D: ~p~n", [Opcode, A, B, C, D]),
 
     I = #inst{
         opcode = Opcode,
@@ -356,18 +374,59 @@ readInsts(Binary, 0, Code) ->
 readInsts(Binary, Sizecode, Code) ->
     case readInst(Binary) of
         {Insts, true, Rest} ->
-			% io:format("Insts (aux):   ~p~n", [Insts]),
+            % io:format("Insts (aux):   ~p~n", [Insts]),
             readInsts(Rest, Sizecode - 2, Insts ++ Code);
         {Insts, false, Rest} ->
-			% io:format("Insts (noaux): ~p~n", [Insts]),
+            % io:format("Insts (noaux): ~p~n", [Insts]),
             readInsts(Rest, Sizecode - 1, Insts ++ Code)
     end.
 
 readInsts(Binary, Sizecode) ->
     readInsts(Binary, Sizecode, []).
 
-getKs(Binary, Sizek) ->
-	{1, Binary}.
+% Nil
+getK(<<0, Rest/binary>>, _) ->
+    % yeah
+    {undefined, Rest};
+% Bool
+getK(<<1, Rest/binary>>, _) ->
+    rBool(Rest);
+% Number
+getK(<<2, Rest/binary>>, _) ->
+    rFloat64(Rest);
+% String
+getK(<<3, Rest1/binary>>, StringList) ->
+    {V, Rest2} = rVarInt(Rest1),
+    % io:format("V: ~p StringList: ~p~n", [V, StringList]),
+    {lists:nth(V, StringList), Rest2};
+% Import
+getK(<<4, Rest/binary>>, _) ->
+    % only used with useImportConstants
+    {undefined, skipUint32(Rest)};
+% Table
+getK(<<5, Rest1/binary>>, _) ->
+    % moot, whatever
+    {undefined, skipTable(Rest1)};
+% Closure
+getK(<<6, Rest/binary>>, _) ->
+    % pain in the cranium
+    % ⚠️ not a val ⚠️
+    rVarInt(Rest);
+getK(<<7, Rest/binary>>, _) ->
+    rVector(Rest).
+
+getKs(Binary, _, 0, Ks) ->
+    {Ks, Binary};
+getKs(Binary, StringList, Sizek, Ks) ->
+    case getK(Binary, StringList) of
+        {undefined, Rest} ->
+            getKs(Rest, StringList, Sizek - 1, Ks);
+        {K, Rest} ->
+            getKs(Rest, StringList, Sizek - 1, Ks ++ [K])
+    end.
+
+getKs(Binary, StringList, Sizek) ->
+    getKs(Binary, StringList, Sizek, []).
 
 readProto(Binary, StringList) ->
     {MaxStackSize, Rest1} = rByte(Binary),
@@ -378,16 +437,16 @@ readProto(Binary, StringList) ->
     {Typesize, Rest5} = rVarInt(Rest4),
     <<_:Typesize/binary, Rest6/binary>> = Rest5,
     {Sizecode, Rest7} = rVarInt(Rest6),
-	% rest7 looks good here
+    % rest7 looks good here
 
     {Code, Rest8} = readInsts(Rest7, Sizecode),
 
     {Sizek, Rest9} = rVarInt(Rest8),
-    io:format("Rest: ~p~n", [Rest9]),
 
-	{K, Rest10} = getKs(Rest9, Sizek),
+    {K, Rest10} = getKs(Rest9, StringList, Sizek),
+    io:format("Rest: ~p~n", [Rest10]),
 
-    {1, Rest8}.
+    {1, Rest10}.
 
 readProtos(Binary, _, 0, Protos) ->
     {Protos, Binary};
