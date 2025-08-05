@@ -29,6 +29,8 @@
     nups = 0
 }).
 
+-record(deserialised, {mainProto, protoList}).
+
 -record(vector, {x = 0, y = 0, z = 0, w = 0}).
 
 uint8(X) ->
@@ -507,23 +509,46 @@ getProtoIds(Binary, Count, ProtoIds) ->
 
 getProtoIds(Binary) ->
     {Sizep, Rest} = rVarInt(Binary),
-    getProtoIds(Rest, [], Sizep).
+    getProtoIds(Rest, Sizep, []).
+
+readLineInfoL(Binary, 0, _, Lineinfo) ->
+    {Lineinfo, Binary};
+readLineInfoL(Binary, Count, Lastoffset, Lineinfo) ->
+    {Offset, Rest1} = rByte(Binary),
+    Newoffset = uint8(Lastoffset + Offset),
+    readLineInfoL(Rest1, Count - 1, Newoffset, Lineinfo ++ [Newoffset]).
+
+readLineInfoL(Binary, Count) ->
+    readLineInfoL(Binary, Count, 0, []).
+
+readLineInfoAbs(Binary, 0, _, Abslineinfo) ->
+    {Abslineinfo, Binary};
+readLineInfoAbs(Binary, Count, Lastline, Abslineinfo) ->
+    {LastlineOffset, Rest1} = rUint32(Binary),
+    Newline = uint32(Lastline + LastlineOffset),
+    readLineInfoAbs(Rest1, Count - 1, Newline, Abslineinfo ++ [Newline]).
+
+readLineInfoAbs(Binary, Count) ->
+    readLineInfoAbs(Binary, Count, 0, []).
 
 readLineInfo(Binary, Sizecode) ->
     {Linegaplog2, Rest1} = rByte(Binary),
-
     {Lineinfo, Rest2} = readLineInfoL(Rest1, Sizecode),
 
     Intervals = (Sizecode - 1) bsr Linegaplog2 + 1,
-
     {Abslineinfo, Rest3} = readLineInfoAbs(Rest2, Intervals),
 
-    lists:map(
-        fun({Index, Value}) ->
-            lists:nth(Index > Linegaplog2, Abslineinfo) + Value
-        end,
-        lists:enumerate(Abslineinfo)
-    ).
+    {
+        lists:map(
+            fun({Index, Value}) ->
+                % io:format("Index: ~p Value: ~p~n", [Index, Value]),
+                % io:format("Linegaplog2: ~p Abslineinfo: ~p~n", [Linegaplog2, Abslineinfo]),
+                lists:nth(((Index - 1) bsr Linegaplog2) + 1, Abslineinfo) + Value
+            end,
+            lists:enumerate(Lineinfo)
+        ),
+        Rest3
+    }.
 
 skipDebugInfoL(Binary, 0) ->
     Binary;
@@ -556,9 +581,9 @@ readProto(Binary, StringList) ->
     {Sizecode, Rest7} = rVarInt(Rest6),
     % rest7 looks good here
 
-    io:format("Sizecode: ~p~n", [Sizecode]),
+    % io:format("Sizecode: ~p~n", [Sizecode]),
     {Code1, Rest8} = readInsts(Rest7, Sizecode),
-    io:format("Code: ~p~n", [Code1]),
+    % io:format("Code: ~p~n", [Code1]),
 
     {Sizek, Rest9} = rVarInt(Rest8),
 
@@ -566,12 +591,11 @@ readProto(Binary, StringList) ->
 
     Code2 = lists:map(
         fun(I) ->
-            io:format("Checking inst - aux: ~p kmode: ~p~n", [I#inst.aux, I#inst.kMode]),
+            % io:format("Checking inst - aux: ~p kmode: ~p~n", [I#inst.aux, I#inst.kMode]),
             checkkmode(I, K)
         end,
         Code1
     ),
-    io:format("Rest: ~p~n", [Rest10]),
 
     {Protos, Rest11} = getProtoIds(Rest10),
 
@@ -587,8 +611,7 @@ readProto(Binary, StringList) ->
     {InstLineInfo, Rest15} =
         case LineInfoEnabled of
             true ->
-                {LineInfo, Rest} = readLineInfo(Rest14, Sizecode),
-                {LineInfo, Rest};
+                readLineInfo(Rest14, Sizecode);
             _ ->
                 {[], Rest14}
         end,
@@ -619,7 +642,7 @@ readProtos(Binary, _, 0, Protos) ->
     {Protos, Binary};
 readProtos(Binary, StringList, Count, Protos) ->
     {Proto, Rest} = readProto(Binary, StringList),
-    io:format("Proto: ~p~n", [Proto]),
+    % io:format("Proto: ~p~n", [Proto]),
     readProtos(Rest, StringList, Count - 1, Protos ++ [Proto]).
 
 readProtos(Binary, StringList, Count) ->
@@ -632,6 +655,17 @@ read_file(Filename) ->
         {error, Reason} ->
             error(Reason)
     end.
+
+replace_at(List, Index, Value) ->
+    lists:map(
+        fun({I, V}) ->
+            if
+                I =:= Index -> Value;
+                true -> V
+            end
+        end,
+        lists:enumerate(List)
+    ).
 
 main() ->
     FileContent = read_file("hello.bytecode"),
@@ -659,15 +693,43 @@ main() ->
 
     Rest4 = userdataTypeRemapping(Rest3),
     {ProtoCount, Rest5} = rVarInt(Rest4),
-    io:format("Proto count: ~p~n", [ProtoCount]),
 
-    {ProtoList, Rest6} = readProtos(Rest5, StringList, ProtoCount),
+    {ProtoList1, Rest6} = readProtos(Rest5, StringList, ProtoCount),
 
-    io:format("Deserialisation completed~n").
+    {MainProtoId, Rest7} = rVarInt(Rest6),
+
+    MainProto = (lists:nth(MainProtoId + 1, ProtoList1))#proto{
+        dbgname = "Main"
+    },
+
+    % replace ProtoList at MainProtoId
+    ProtoList2 = replace_at(ProtoList1, MainProtoId + 1, MainProto),
+
+    case size(Rest7) of
+        0 -> ok;
+        _ -> error("deserialiser position mismatch")
+    end,
+
+    % io:format("Deserialisation completed~n"),
+    #deserialised{
+        mainProto = MainProto,
+        protoList = ProtoList2
+    }.
+
+expect(Got, Want) ->
+    if
+        Got =:= Want -> ok;
+        true -> error({expectation_failed, Want, Got})
+    end.
 
 start() ->
     try
-        main()
+        D = main(),
+        expect(length(D#deserialised.protoList), 1),
+        expect(lists:nth(1, D#deserialised.protoList), D#deserialised.mainProto),
+        expect(D#deserialised.mainProto#proto.dbgname, "Main"),
+        expect((lists:nth(1, D#deserialised.mainProto#proto.code))#inst.opcode, 65),
+        expect(D#deserialised.mainProto#proto.instLineInfo, [1, 1, 1, 1, 1, 2])
     catch
         error:Reason:Stack ->
             io:format("Error: ~p~nStack: ~p~n", [Reason, Stack])
