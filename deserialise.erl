@@ -19,6 +19,9 @@
     kn = false
 }).
 
+% i am proto
+% security is my
+% motto
 -record(proto, {
     dbgname = "",
     code = [],
@@ -29,7 +32,7 @@
     nups = 0
 }).
 
--record(deserialised, {mainProto, protoList}).
+-record(deserialised, {mainProto = #proto{}, protoList = []}).
 
 -record(vector, {x = 0, y = 0, z = 0, w = 0}).
 
@@ -249,16 +252,16 @@ checkkmode(I, K) ->
         1 ->
             if
                 Aux < length(K) ->
-                    I#inst{k = lists:nth(Aux - 1, K)};
+                    I#inst{k = lists:nth(Aux + 1, K)};
                 true ->
                     I
             end;
         % C
         2 ->
-            I#inst{k = lists:nth(I#inst.c - 1, K)};
+            I#inst{k = lists:nth(I#inst.c + 1, K)};
         % D
         3 ->
-            I#inst{k = lists:nth(I#inst.d - 1, K)};
+            I#inst{k = lists:nth(I#inst.d + 1, K)};
         % AUX import
         4 ->
             Count = uint8(Aux bsr 30),

@@ -3,22 +3,18 @@
 
 -record(compiler, {o = 0}).
 
+-record(deserpath, {deserialised = <<>>, dbgpath = ""}).
+
+-record(program, {deserpath = #deserpath{}, filepath = "", compiler = #compiler{}}).
+
 ext() -> ".luau".
 
-read_file(Filename) ->
-    case file:read_file(Filename) of
-        {ok, Binary} ->
-            Binary;
-        {error, Reason} ->
-            error(Reason)
-    end.
+luauCompile(Path, O) ->
+    os:cmd("luau-compile --binary -O" ++ integer_to_list(O) ++ " " ++ Path).
 
-luauCompile(Pathext, O) ->
-	ok.
-
-compile(Compiler, Path) ->
+compile(C, Path) ->
     % hash path instead of bytecode
-    Hash = crypto:hash(sha3_256, Path),
+    % Hash = crypto:hash(sha3_256, Path),
 
     % find if file at path exists
     Pathext1 = Path ++ ext(),
@@ -35,10 +31,24 @@ compile(Compiler, Path) ->
                 end
         end,
 
-    B = luauCompile(Pathext, Compiler#compiler.o),
+    B = luauCompile(Pathext, C#compiler.o),
+    % convert list to binary
+    Bin = list_to_binary(B),
 
-    io:format("Compiling ~s~n", [Pathext]),
-    ok.
+    % dbgpath has the extension and all
+    D = deserialise:deserialise(Bin),
+
+    Dp = #deserpath{
+        deserialised = D,
+        dbgpath = Pathext
+    },
+    % TODO: cache
+
+    #program{
+        deserpath = Dp,
+        filepath = Path,
+        compiler = C
+    }.
 
 start() ->
     try
