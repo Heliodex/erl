@@ -1,5 +1,5 @@
 -module(deserialise).
--export([start/0]).
+-export([read_file/1, deserialise/1, start/0]).
 
 -record(opinfo, {mode, kMode, hasAux}).
 
@@ -667,23 +667,11 @@ replace_at(List, Index, Value) ->
         lists:enumerate(List)
     ).
 
-main() ->
-    FileContent = read_file("hello.bytecode"),
-
-    <<LuauVersion:8, TypesVersion:8, Rest1/binary>> = FileContent,
-
-    case LuauVersion of
-        0 -> error("the provided bytecode is an error message");
-        6 -> ok;
-        _ -> error("the version of the provided bytecode is unsupported")
-    end,
-    % io:format("Luau Version: ~p~n", [LuauVersion]),
-
-    case TypesVersion of
-        3 -> ok;
-        _ -> error("the types version of the provided bytecode is unsupported")
-    end,
-    % io:format("Types Version: ~p~n", [TypesVersion]),
+deserialise(<<0:8, _/binary>>) ->
+    error("the provided bytecode is an error message");
+deserialise(<<6:8, 3:8, Rest1/binary>>) ->
+    % io:format("Luau Version: 6~n"),
+    % io:format("Types Version: 3~n"),
 
     {StringCount, Rest2} = rVarInt(Rest1),
     % io:format("String count: ~p~n", [StringCount]),
@@ -698,6 +686,11 @@ main() ->
 
     {MainProtoId, Rest7} = rVarInt(Rest6),
 
+    case size(Rest7) of
+        0 -> ok;
+        _ -> error("deserialiser position mismatch")
+    end,
+
     MainProto = (lists:nth(MainProtoId + 1, ProtoList1))#proto{
         dbgname = "Main"
     },
@@ -705,16 +698,15 @@ main() ->
     % replace ProtoList at MainProtoId
     ProtoList2 = replace_at(ProtoList1, MainProtoId + 1, MainProto),
 
-    case size(Rest7) of
-        0 -> ok;
-        _ -> error("deserialiser position mismatch")
-    end,
-
     % io:format("Deserialisation completed~n"),
     #deserialised{
         mainProto = MainProto,
         protoList = ProtoList2
-    }.
+    };
+deserialise(<<6:8, _:8, _/binary>>) ->
+    error("the types version of the provided bytecode is unsupported");
+deserialise(<<_:8, _/binary>>) ->
+    error("the version of the provided bytecode is unsupported").
 
 expect(Got, Want) ->
     if
@@ -724,7 +716,8 @@ expect(Got, Want) ->
 
 start() ->
     try
-        D = main(),
+        FileContent = read_file("hello.bytecode"),
+        D = deserialise(FileContent),
         expect(length(D#deserialised.protoList), 1),
         expect(lists:nth(1, D#deserialised.protoList), D#deserialised.mainProto),
         expect(D#deserialised.mainProto#proto.dbgname, "Main"),
