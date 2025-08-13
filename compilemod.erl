@@ -1,11 +1,23 @@
--module(compile).
--export([start/0]).
+-module(compilemod).
+-export([start/0, compile/2]).
 
 -record(compiler, {o = 0}).
 
--record(deserpath, {deserialised = <<>>, dbgpath = ""}).
+% -record(proto, {
+%     dbgname = "",
+%     code = [],
+%     instLineInfo = [],
+%     protos = [],
+%     maxStackSize = 0,
+%     numParams = 0,
+%     nups = 0
+% }).
 
--record(program, {deserpath = #deserpath{}, filepath = "", compiler = #compiler{}}).
+% -record(deserialised, {mainProto = #proto{}, protoList = []}).
+
+-record(deserpath, {deserialised, dbgpath = ""}).
+
+-record(program, {deserpath = #deserpath{}, filepath = "", compiler = #compiler{}, requireHistory = []}).
 
 ext() -> ".luau".
 
@@ -52,8 +64,8 @@ compile(C, Path) ->
 
 start() ->
     try
-        Compiler = #compiler{},
-        compile(Compiler, "hello")
+        C = #compiler{},
+        compile(C, "hello")
     catch
         error:Reason:Stack ->
             io:format("Error: ~p~nStack: ~p~n", [Reason, Stack])
