@@ -3,6 +3,22 @@
 
 -record(compiler, {o = 0}).
 
+-record(inst, {
+    k,
+    k0 = "",
+    k1 = "",
+    k2 = "",
+    kc = 0,
+    opcode = 0,
+    kMode = 0,
+    b = 0,
+    c = 0,
+    a = 0,
+    d = 0,
+    aux = 0,
+    kn = false
+}).
+
 -record(proto, {
     dbgname = "",
     code = [],
@@ -17,7 +33,9 @@
 
 -record(deserpath, {deserialised = #deserialised{}, dbgpath = ""}).
 
--record(program, {deserpath = #deserpath{}, filepath = "", compiler = #compiler{}, requireHistory = []}).
+-record(program, {
+    deserpath = #deserpath{}, filepath = "", compiler = #compiler{}, requireHistory = []
+}).
 
 -record(toWrap, {
     proto,
@@ -29,8 +47,14 @@
     requireCache = #{}
 }).
 
+-record(function, {
+    run,
+    name = "",
+    co = nil
+}).
+
 -record(coroutine, {
-    function,
+    function = #function{},
     env,
     filepath = "",
     dbgpath = "",
@@ -43,11 +67,183 @@
     % programArgs
 }).
 
-wrapclosure(Towrap, ExistingCo) ->
-	Proto = Towrap#toWrap.proto,
-	{Maxs, Np} = {Proto#proto.maxStackSize, Proto#proto.numParams},
-	ok.
+exts() ->
+    #{}.
 
+fn(Name, Co, F) ->
+    #function{
+        run = F,
+        name = Name,
+        co = Co
+    }.
+
+luau_multret() -> -1.
+
+movestackloop(Stack, _, I, B, _) when I == B ->
+    Stack;
+movestackloop(Stack, Src, I, B, T) ->
+    L = array:size(Src),
+    Stack2 = array:set(
+        T + I,
+        if
+            I > L -> nil;
+            true -> array:get(I, Src)
+        end,
+        Stack
+    ),
+    movestackloop(Stack2, Src, I + 1, B, T).
+
+% i don't assume this to be correct first try
+movestack(Stack, Src, B, T) ->
+    L = max(T + B + 1, array:size(Stack)),
+    Stack2 = array:resize(L, Stack),
+    % io:format("Resized to ~p ~p ~p~n", [B, T, L]),
+
+    % Src2 = array:resize(B, Src),
+    % % Replace section of Stack, from T with length B, with Src
+    % Stack3 = array:from_list(lists:sublist(array:to_list(Stack2), T)),
+    % Stack4 = array:from_list(lists:sublist(array:to_list(Stack2), T + B + 1, L - (T + B))),
+    % array:from_list(array:to_list(Stack3) ++ array:to_list(Src2) ++ array:to_list(Stack4)).
+    movestackloop(Stack2, Src, 0, B, T).
+
+call(Top, A, B, C, Towrap, Stack, Co) ->
+    F = array:get(A, Stack),
+
+    % TODO: uncallable types
+
+    Params =
+        deserialise:int32(
+            if
+                B == 0 ->
+                    Top - A;
+                true ->
+                    B
+            end
+        ),
+
+    Rco =
+        if
+            F#function.co == nil ->
+                Co;
+            true ->
+                F#function.co
+        end,
+
+    Args = lists:sublist(array:to_list(Stack), A + 2, Params - 1),
+    RetList = (F#function.run)(Rco, Args),
+    RetCount = array:size(RetList),
+
+    % TODO: require()s
+
+    {Top2, RetCount2} =
+        if
+            C == 0 -> {A + RetCount, RetCount};
+            true -> {Top, deserialise:int32(C - 1)}
+        end,
+
+    % io:format("RetList: ~p~n", [RetList]),
+    Stack2 = movestack(Stack, RetList, RetCount2, A),
+    {Top2, Stack2}.
+
+execloop(Towrap, Pc, Top, Code, Stack, Co) ->
+    I = lists:nth(Pc + 1, Code),
+    Op = I#inst.opcode,
+    % io:format("Executing opcode ~p at pc ~p with stack ~p ~p~n", [
+    %     Op, Pc, array:size(Stack), array:to_list(Stack)
+    % ]),
+    case Op of
+        % NOP
+        0 ->
+            % Do nothing
+            execloop(Towrap, Pc + 1, Top, Code, Stack, Co);
+        % LOADNIL
+        2 ->
+            Stack2 = array:set(I#inst.a, nil, Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % LOADK
+        5 ->
+            Stack2 = array:set(I#inst.a, I#inst.k, Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % GETGLOBAL
+        7 ->
+            Kv = I#inst.k,
+
+            Stack2 =
+                case maps:find(Kv, exts()) of
+                    {ok, E} ->
+                        array:set(I#inst.a, E, Stack);
+                    _ ->
+                        case maps:find(Kv, Towrap#toWrap.env) of
+                            {ok, E} ->
+                                array:set(I#inst.a, E, Stack);
+                            _ ->
+                                array:set(I#inst.a, nil, Stack)
+                        end
+                end,
+            execloop(Towrap, Pc + 2, Top, Code, Stack2, Co);
+        % CALL
+        21 ->
+            % oh no
+            {Top2, Stack2} = call(Top, I#inst.a, I#inst.b, I#inst.c, Towrap, Stack, Co),
+            execloop(Towrap, Pc + 1, Top2, Code, Stack2, Co);
+        % RETURN
+        22 ->
+            B = deserialise:int32(I#inst.b) - 1,
+            MR = luau_multret(),
+
+            % nresults
+            B2 =
+                if
+                    B == MR -> Top - I#inst.a;
+                    true -> B
+                end,
+
+            % execloop() should pretty much always exit through here
+            Stack2 = array:resize(I#inst.a + B2, Stack),
+            array:from_list(lists:sublist(array:to_list(Stack2), I#inst.a + 1, B2));
+        % PREPVARARGS
+        65 ->
+            % handled by wrapper
+            execloop(Towrap, Pc + 1, Top, Code, Stack, Co)
+    end.
+
+execute(Towrap, Stack, VargsList, Co) ->
+    {P, Upvals} = {Towrap#toWrap.proto, Towrap#toWrap.upvals},
+
+    {Code, LineInfo, Protos} = {P#proto.code, P#proto.instLineInfo, P#proto.protos},
+
+    % Co2 = Co#coroutine{
+    % 	dbg = Co#coroutine.dbg#
+    % }.
+
+    execloop(Towrap, 0, 0, Code, Stack, Co).
+
+wrapclosure(Towrap, ExistingCo) ->
+    Proto = Towrap#toWrap.proto,
+    {Maxs, Np} = {Proto#proto.maxStackSize, Proto#proto.numParams},
+
+    fn("", ExistingCo, fun(Co, Args) ->
+        La = deserialise:uint8(length(Args)),
+
+        List =
+            if
+                Np < La ->
+                    % args from np onwards
+                    Args = lists:sublist(Args, Np + 1, La);
+                true ->
+                    []
+            end,
+
+        % io:format("List: ~p~n", [List]),
+
+        Stack1 = array:from_list(lists:sublist(Args, min(Np, La))),
+        Stack2 = array:resize(max(Maxs, La - Np), Stack1),
+
+        % InitDbg = Co#coroutine.dbg,
+
+        % io:format("Starting stack: ~p~n", [Stack2]),
+        execute(Towrap, Stack2, List, Co)
+    end).
 
 loadmodule(P, Env, RequireCache) ->
     % Alive = true,
@@ -66,10 +262,10 @@ loadmodule(P, Env, RequireCache) ->
         filepath = P#program.filepath,
         dbgpath = P#program.deserpath#deserpath.dbgpath,
         requireHistory = P#program.requireHistory,
-		% yieldChan = nil,
-		% resumeChan = nil,
-		compiler = P#program.compiler
-		% programArgs = Args
+        % yieldChan = nil,
+        % resumeChan = nil,
+        compiler = P#program.compiler
+        % programArgs = Args
     }.
 
 % TODO: args
@@ -81,9 +277,24 @@ start() ->
         C = #compiler{},
         P = compilemod:compile(C, "hello"),
 
-        Env = #{},
+        Env = #{
+            "print" => fn("print", nil, fun(_, Args) ->
+                lists:foreach(
+                    fun(X) ->
+                        io:format("~s", [X])
+                    end,
+                    Args
+                ),
+                io:format("~n"),
 
-        Co = load(P, Env)
+                array:new()
+            end)
+        },
+
+        Co = load(P, Env),
+        % io:format("Co: ~p~n", [Co#coroutine.function]),
+        Returns = (Co#coroutine.function#function.run)(Co, []),
+        io:format("Returns: ~p~n", [array:to_list(Returns)])
     catch
         error:Reason:Stack ->
             io:format("Error: ~p~nStack: ~p~n", [Reason, Stack])

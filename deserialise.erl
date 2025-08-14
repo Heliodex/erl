@@ -1,5 +1,5 @@
 -module(deserialise).
--export([read_file/1, deserialise/1, start/0]).
+-export([read_file/1, deserialise/1, start/0, uint8/1, int32/1]).
 
 -record(opinfo, {mode, kMode, hasAux}).
 
