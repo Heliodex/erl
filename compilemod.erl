@@ -17,12 +17,39 @@
 
 -record(deserpath, {deserialised, dbgpath = ""}).
 
--record(program, {deserpath = #deserpath{}, filepath = "", compiler = #compiler{}, requireHistory = []}).
+-record(program, {
+    deserpath = #deserpath{}, filepath = "", compiler = #compiler{}, requireHistory = []
+}).
 
 ext() -> ".luau".
 
+% os:exec returns as a string (why??) and jumbles the bytecode accordingly
+get_data(Port, Sofar) ->
+    receive
+        {Port, {data, Bytes}} ->
+            get_data(Port, [Sofar | Bytes]);
+        {Port, eof} ->
+            Port ! {self(), close},
+            receive
+                {Port, closed} ->
+                    true
+            end,
+            receive
+                {'EXIT', Port, _} ->
+                    ok
+                % force context switch
+            after 1 ->
+                ok
+            end,
+            list_to_binary(lists:flatten(Sofar))
+    end.
+
+my_exec(Command) ->
+    Port = open_port({spawn, Command}, [stream, in, eof, hide, exit_status]),
+    get_data(Port, []).
+
 luauCompile(Path, O) ->
-    os:cmd("luau-compile --binary -O" ++ integer_to_list(O) ++ " " ++ Path).
+    my_exec("luau-compile --binary -O" ++ integer_to_list(O) ++ " " ++ Path).
 
 compile(C, Path) ->
     % hash path instead of bytecode
@@ -43,9 +70,8 @@ compile(C, Path) ->
                 end
         end,
 
-    B = luauCompile(Pathext, C#compiler.o),
-    % convert list to binary
-    Bin = list_to_binary(B),
+    Bin = luauCompile(Pathext, C#compiler.o),
+    % io:format("File content: ~p~n", [Bin]),
 
     % dbgpath has the extension and all
     D = deserialise:deserialise(Bin),

@@ -309,6 +309,8 @@ checkkmode(I, K) ->
             I#inst{k = Aux band 16}
     end.
 
+% io:format("KI: ~p~n", [KI#inst.k]),
+
 rByte(<<B:8, Rest/binary>>) ->
     {B, Rest}.
 
@@ -325,10 +327,12 @@ rUint32(<<W:32/little, Rest/binary>>) ->
 skipUint32(<<_:32, Rest/binary>>) ->
     Rest.
 
-rVector(<<X:32/float, Y:32/float, Z:32/float, W:32/float, Rest/binary>>) ->
+rVector(
+    <<X:32/float-little, Y:32/float-little, Z:32/float-little, W:32/float-little, Rest/binary>>
+) ->
     {#vector{x = X, y = Y, z = Z, w = W}, Rest}.
 
-rFloat64(<<F:64/float, Rest/binary>>) ->
+rFloat64(<<F:64/float-little, Rest/binary>>) ->
     {F, Rest}.
 
 rVarInt(Binary, I, R) ->
@@ -426,7 +430,7 @@ readInst(Binary) ->
             0 ->
                 {0, 0, 0, 0}
         end,
-    % io:format("Opcode: ~p, A: ~p, B: ~p, C: ~p, D: ~p~n", [Opcode, A, B, C, D]),
+    % io:format("Opcode: ~p A: ~p B: ~p C: ~p D: ~p~n", [Opcode, A, B, C, D]),
 
     I = #inst{
         opcode = Opcode,
@@ -436,6 +440,8 @@ readInst(Binary) ->
         c = C,
         d = D
     },
+
+    % io:format("Inst: ~p~n", [I]),
 
     case Opinfo#opinfo.hasAux of
         true ->
@@ -494,6 +500,8 @@ getK(<<7, Rest/binary>>, _) ->
 getKs(Binary, _, 0, Ks) ->
     {Ks, Binary};
 getKs(Binary, StringList, Sizek, Ks) ->
+    % <<B:8, _/binary>> = Binary,
+    % io:format("Getting K: ~p~n", [B]),
     case getK(Binary, StringList) of
         {undefined, Rest} ->
             getKs(Rest, StringList, Sizek - 1, Ks);
@@ -576,6 +584,7 @@ skipDebugInfo(Binary) ->
     skipDebugInfoUpvalues(Rest3, Sizeupvals).
 
 readProto(Binary, StringList) ->
+    % io:format("Reading proto... ~p~n", [Binary]),
     <<MaxStackSize:8, NumParams:8, Nups:8, Rest3/binary>> = Binary,
 
     <<_:16, Rest4/binary>> = Rest3,
@@ -591,6 +600,7 @@ readProto(Binary, StringList) ->
     {Sizek, Rest9} = rVarInt(Rest8),
 
     {K, Rest10} = getKs(Rest9, StringList, Sizek),
+    % io:format("K: ~p~n", [K]),
 
     Code2 = lists:map(
         fun(I) ->
@@ -673,6 +683,7 @@ replace_at(List, Index, Value) ->
 deserialise(<<0:8, _/binary>>) ->
     error("the provided bytecode is an error message");
 deserialise(<<6:8, 3:8, Rest1/binary>>) ->
+    % io:format("Rest: ~p~n", [Rest1]),
     % io:format("Luau Version: 6~n"),
     % io:format("Types Version: 3~n"),
 
@@ -683,8 +694,10 @@ deserialise(<<6:8, 3:8, Rest1/binary>>) ->
     % io:format("Strings: ~p~n", [StringList]),
 
     Rest4 = userdataTypeRemapping(Rest3),
+    % io:format("Rest: ~p~n", [Rest4]),
     {ProtoCount, Rest5} = rVarInt(Rest4),
 
+    % io:format("Rest: ~p~n", [Rest5]),
     {ProtoList1, Rest6} = readProtos(Rest5, StringList, ProtoCount),
 
     {MainProtoId, Rest7} = rVarInt(Rest6),

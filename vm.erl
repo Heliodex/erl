@@ -173,6 +173,7 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
             execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
         % LOADK
         5 ->
+            % io:format("K: ~p~n", [I#inst.k]),
             Stack2 = array:set(I#inst.a, I#inst.k, Stack),
             execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
         % MOVE
@@ -267,6 +268,11 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
                         2
                 end,
             execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+		% arithmetic
+		33 ->
+			io:format("Adding ~p and ~p~n", [array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)]),
+			Stack2 = array:set(I#inst.a, array:get(I#inst.b, Stack) + array:get(I#inst.c, Stack), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
         % logic AND
         45 ->
             {A, B} = {array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)},
@@ -426,7 +432,7 @@ wrapclosure(Towrap, ExistingCo) ->
 
         % InitDbg = Co#coroutine.dbg,
 
-        % io:format("Starting stack: ~p~n", [Stack2]),
+        % io:format("Starting stack: ~p~n", [array:to_list(Stack2)]),
         execute(Towrap, Stack2, List, Co)
     end).
 
@@ -466,7 +472,7 @@ start() ->
             "print" => fn("print", nil, fun(_, Args) ->
                 lists:foreach(
                     fun(X) ->
-                        io:format("~s", [X])
+                        io:format("~p", [X])
                     end,
                     Args
                 ),
