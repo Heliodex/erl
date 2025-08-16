@@ -67,6 +67,9 @@
     % programArgs
 }).
 
+falsy(V) ->
+    V == nil orelse V == false.
+
 exts() ->
     #{}.
 
@@ -160,9 +163,21 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
         2 ->
             Stack2 = array:set(I#inst.a, nil, Stack),
             execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % LOADB
+        3 ->
+            Stack2 = array:set(I#inst.a, I#inst.b == 1, Stack),
+            execloop(Towrap, Pc + I#inst.c + 1, Top, Code, Stack2, Co);
+        % LOADN
+        4 ->
+            Stack2 = array:set(I#inst.a, I#inst.d, Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
         % LOADK
         5 ->
             Stack2 = array:set(I#inst.a, I#inst.k, Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % MOVE
+        6 ->
+            Stack2 = array:set(I#inst.a, array:get(I#inst.b, Stack), Stack),
             execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
         % GETGLOBAL
         7 ->
@@ -181,6 +196,12 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
                         end
                 end,
             execloop(Towrap, Pc + 2, Top, Code, Stack2, Co);
+        % SETGLOBAL
+        8 ->
+            % LOL
+            error("attempt to set global");
+        % GETUPVAL
+        % SETUPVAL
         % CALL
         21 ->
             % oh no
@@ -201,10 +222,174 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
             % execloop() should pretty much always exit through here
             Stack2 = array:resize(I#inst.a + B2, Stack),
             array:from_list(lists:sublist(array:to_list(Stack2), I#inst.a + 1, B2));
+        % JUMP
+        23 ->
+            execloop(Towrap, Pc + I#inst.d + 1, Top, Code, Stack, Co);
+        % JUMPBACK
+        24 ->
+            execloop(Towrap, Pc + I#inst.d + 1, Top, Code, Stack, Co);
+        % JUMPIF
+        25 ->
+            Pci =
+                case falsy(array:get(I#inst.a, Stack)) of
+                    true ->
+                        1;
+                    _ ->
+                        I#inst.d + 1
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        % JUMPIFNOT
+        26 ->
+            Pci =
+                case falsy(array:get(I#inst.a, Stack)) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        1
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        % jump
+        27 ->
+            Pci =
+                case array:get(I#inst.a, Stack) == array:get(I#inst.aux, Stack) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        30 ->
+            Pci =
+                case array:get(I#inst.a, Stack) /= array:get(I#inst.aux, Stack) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        % logic AND
+        45 ->
+            {A, B} = {array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)},
+            Stack2 =
+                case falsy(A) of
+                    true ->
+                        array:set(I#inst.a, A, Stack);
+                    _ ->
+                        array:set(I#inst.a, B, Stack)
+                end,
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % logic OR
+        46 ->
+            {A, B} = {array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)},
+            Stack2 =
+                case falsy(A) of
+                    true ->
+                        array:set(I#inst.a, B, Stack);
+                    _ ->
+                        array:set(I#inst.a, A, Stack)
+                end,
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % logik AND
+        47 ->
+            {A, B} = {array:get(I#inst.b, Stack), I#inst.k},
+            Stack2 =
+                case falsy(A) of
+                    true ->
+                        array:set(I#inst.a, A, Stack);
+                    _ ->
+                        array:set(I#inst.a, B, Stack)
+                end,
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % logik OR
+        48 ->
+            {A, B} = {array:get(I#inst.b, Stack), I#inst.k},
+            Stack2 =
+                case falsy(A) of
+                    true ->
+                        array:set(I#inst.a, B, Stack);
+                    _ ->
+                        array:set(I#inst.a, A, Stack)
+                end,
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % NOT
+        50 ->
+            Stack2 = array:set(I#inst.a, falsy(array:get(I#inst.b, Stack)), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % FASTCALL3
+        60 ->
+            % Skipped
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack, Co);
         % PREPVARARGS
         65 ->
             % handled by wrapper
-            execloop(Towrap, Pc + 1, Top, Code, Stack, Co)
+            execloop(Towrap, Pc + 1, Top, Code, Stack, Co);
+        % LOADKX
+        66 ->
+            Stack2 = array:set(I#inst.a, I#inst.k, Stack),
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack2, Co);
+        % JUMPX
+        67 ->
+            execloop(Towrap, Pc + I#inst.a + 1, Top, Code, Stack, Co);
+        % FASTCALL
+        68 ->
+            % Skipped
+            execloop(Towrap, Pc + 1, Top, Code, Stack, Co);
+        % FASTCALL1
+        73 ->
+            % Skipped
+            execloop(Towrap, Pc + 1, Top, Code, Stack, Co);
+        % FASTCALL2
+        74 ->
+            % Skipped
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack, Co);
+        % FASTCALL2K
+        75 ->
+            % Skipped
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack, Co);
+        % FORGPREP
+        76 ->
+            % what are we even supposed to do here, there's nothing to prepare
+            execloop(Towrap, Pc + I#inst.d + 1, Top, Code, Stack, Co);
+        % JUMPXEQKNIL
+        77 ->
+            Ra = array:default(I#inst.a, Stack),
+            Pci =
+                case (Ra == nil) /= I#inst.kn of
+                    true -> I#inst.d + 1;
+                    _ -> 2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        % JUMPXEQKB
+        78 ->
+            {Kv, Ra} = {I#inst.k, array:default(I#inst.a, Stack)},
+            Pci =
+                case (Ra == Kv) /= I#inst.kn of
+                    true -> I#inst.d + 1;
+                    _ -> 2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        % JUMPXEQKN
+        79 ->
+            {Kv, Ra} = {I#inst.k, array:default(I#inst.a, Stack)},
+            Pci =
+                case (Ra == Kv) /= I#inst.kn of
+                    true -> I#inst.d + 1;
+                    _ -> 2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        % JUMPXEQKS
+        80 ->
+            {Kv, Ra} = {I#inst.k, array:default(I#inst.a, Stack)},
+            Pci =
+                case (Ra == Kv) /= I#inst.kn of
+                    true -> I#inst.d + 1;
+                    _ -> 2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co)
     end.
 
 execute(Towrap, Stack, VargsList, Co) ->
