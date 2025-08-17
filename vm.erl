@@ -67,6 +67,27 @@
     % programArgs
 }).
 
+a_add(A, B) ->
+    A + B.
+
+a_sub(A, B) ->
+    A - B.
+
+a_mul(A, B) ->
+    A * B.
+
+a_div(A, B) ->
+    A / B.
+
+a_mod(A, B) ->
+    A - B * math:floor(A / B).
+
+a_pow(A, B) ->
+    math:pow(A, B).
+
+a_idiv(A, B) ->
+    math:floor(A / B).
+
 falsy(V) ->
     V == nil orelse V == false.
 
@@ -270,10 +291,50 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
             execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
 		% arithmetic
 		33 ->
-			io:format("Adding ~p and ~p~n", [array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)]),
-			Stack2 = array:set(I#inst.a, array:get(I#inst.b, Stack) + array:get(I#inst.c, Stack), Stack),
+			% io:format("Adding ~p and ~p~n", [array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)]),
+			Stack2 = array:set(I#inst.a, a_add(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
 			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-        % logic AND
+		34 ->
+			Stack2 = array:set(I#inst.a, a_sub(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		35 ->
+			Stack2 = array:set(I#inst.a, a_mul(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		36 ->
+			Stack2 = array:set(I#inst.a, a_div(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		37 ->
+			Stack2 = array:set(I#inst.a, a_mod(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		38 ->
+			Stack2 = array:set(I#inst.a, a_pow(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		81 ->
+			Stack2 = array:set(I#inst.a, a_idiv(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		% arithmetik
+		39 ->
+			Stack2 = array:set(I#inst.a, a_add(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		40 ->
+			Stack2 = array:set(I#inst.a, a_sub(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		41 ->
+			Stack2 = array:set(I#inst.a, a_mul(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		42 ->
+			Stack2 = array:set(I#inst.a, a_div(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		43 ->
+			Stack2 = array:set(I#inst.a, a_mod(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		44 ->
+			Stack2 = array:set(I#inst.a, a_pow(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		82 ->
+			Stack2 = array:set(I#inst.a, a_idiv(array:get(I#inst.b, Stack), I#inst.k), Stack),
+			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+		% logic AND
         45 ->
             {A, B} = {array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)},
             Stack2 =
