@@ -67,6 +67,12 @@
     % programArgs
 }).
 
+-record(table, {
+    % we'll just use hash for now
+    readonly = false,
+    data = #{}
+}).
+
 a_add(A, B) ->
     A + B.
 
@@ -88,6 +94,9 @@ a_pow(A, B) ->
 a_idiv(A, B) ->
     math:floor(A / B).
 
+a_unm(A) ->
+    -A.
+
 falsy(V) ->
     V == nil orelse V == false.
 
@@ -102,6 +111,18 @@ fn(Name, Co, F) ->
     }.
 
 luau_multret() -> -1.
+
+gettable(K, V) ->
+    % only tables for now
+    case maps:find(K, V#table.data) of
+        {ok, Val} -> Val;
+        error -> nil
+    end.
+
+settable(K, V, Table) ->
+    Table#table{
+        data = maps:put(K, V, Table#table.data)
+    }.
 
 movestackloop(Stack, _, I, B, _) when I == B ->
     Stack;
@@ -144,6 +165,8 @@ call(Top, A, B, C, Towrap, Stack, Co) ->
                     B
             end
         ),
+
+    % io:format("Calling function ~p with params ~p~n", [F, Params]),
 
     Rco =
         if
@@ -222,6 +245,52 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
         8 ->
             % LOL
             error("attempt to set global");
+        % GETTABLE
+        13 ->
+            Stack2 = array:set(
+                I#inst.a, gettable(array:get(I#inst.c, Stack), array:get(I#inst.b, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % SETTABLE
+        14 ->
+            Idx = array:get(I#inst.c, Stack),
+            T = array:get(I#inst.b, Stack),
+            if
+                T#table.readonly ->
+                    error("attempt to modify a readonly table");
+                Idx == nil ->
+                    error("table index is nil");
+                true ->
+                    ok
+            end,
+
+            T2 = settable(Idx, array:get(I#inst.a, Stack), T),
+            Stack2 = array:set(I#inst.b, T2, Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % GETTABLEKS
+        15 ->
+            Stack2 = array:set(
+                I#inst.a, gettable(I#inst.k, array:get(I#inst.b, Stack)), Stack
+            ),
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack2, Co);
+        % SETTABLEKS
+        16 ->
+            Idx = I#inst.k,
+            T = array:get(I#inst.b, Stack),
+            if
+                T#table.readonly ->
+                    error("attempt to modify a readonly table");
+                Idx == nil ->
+                    error("table index is nil");
+                true ->
+                    ok
+            end,
+
+            T2 = settable(Idx, array:get(I#inst.a, Stack), T),
+            Stack2 = array:set(I#inst.b, T2, Stack),
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack2, Co);
         % GETUPVAL
         % SETUPVAL
         % CALL
@@ -289,52 +358,66 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
                         2
                 end,
             execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
-		% arithmetic
-		33 ->
-			% io:format("Adding ~p and ~p~n", [array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)]),
-			Stack2 = array:set(I#inst.a, a_add(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		34 ->
-			Stack2 = array:set(I#inst.a, a_sub(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		35 ->
-			Stack2 = array:set(I#inst.a, a_mul(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		36 ->
-			Stack2 = array:set(I#inst.a, a_div(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		37 ->
-			Stack2 = array:set(I#inst.a, a_mod(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		38 ->
-			Stack2 = array:set(I#inst.a, a_pow(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		81 ->
-			Stack2 = array:set(I#inst.a, a_idiv(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		% arithmetik
-		39 ->
-			Stack2 = array:set(I#inst.a, a_add(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		40 ->
-			Stack2 = array:set(I#inst.a, a_sub(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		41 ->
-			Stack2 = array:set(I#inst.a, a_mul(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		42 ->
-			Stack2 = array:set(I#inst.a, a_div(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		43 ->
-			Stack2 = array:set(I#inst.a, a_mod(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		44 ->
-			Stack2 = array:set(I#inst.a, a_pow(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		82 ->
-			Stack2 = array:set(I#inst.a, a_idiv(array:get(I#inst.b, Stack), I#inst.k), Stack),
-			execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
-		% logic AND
+        % arithmetic
+        33 ->
+            % io:format("Adding ~p and ~p~n", [array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)]),
+            Stack2 = array:set(
+                I#inst.a, a_add(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        34 ->
+            Stack2 = array:set(
+                I#inst.a, a_sub(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        35 ->
+            Stack2 = array:set(
+                I#inst.a, a_mul(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        36 ->
+            Stack2 = array:set(
+                I#inst.a, a_div(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        37 ->
+            Stack2 = array:set(
+                I#inst.a, a_mod(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        38 ->
+            Stack2 = array:set(
+                I#inst.a, a_pow(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        81 ->
+            Stack2 = array:set(
+                I#inst.a, a_idiv(array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)), Stack
+            ),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % arithmetik
+        39 ->
+            Stack2 = array:set(I#inst.a, a_add(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        40 ->
+            Stack2 = array:set(I#inst.a, a_sub(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        41 ->
+            Stack2 = array:set(I#inst.a, a_mul(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        42 ->
+            Stack2 = array:set(I#inst.a, a_div(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        43 ->
+            Stack2 = array:set(I#inst.a, a_mod(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        44 ->
+            Stack2 = array:set(I#inst.a, a_pow(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        82 ->
+            Stack2 = array:set(I#inst.a, a_idiv(array:get(I#inst.b, Stack), I#inst.k), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % logic AND
         45 ->
             {A, B} = {array:get(I#inst.b, Stack), array:get(I#inst.c, Stack)},
             Stack2 =
@@ -382,6 +465,36 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
         50 ->
             Stack2 = array:set(I#inst.a, falsy(array:get(I#inst.b, Stack)), Stack),
             execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % MINUS
+        51 ->
+            Stack2 = array:set(I#inst.a, a_unm(array:get(I#inst.b, Stack)), Stack),
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % NEWTABLE
+        53 ->
+            Stack2 = array:set(I#inst.a, #table{}, Stack),
+            % adjust for aux
+            execloop(Towrap, Pc + 2, Top, Code, Stack2, Co);
+        % DUPTABLE
+        54 ->
+            Stack2 = array:set(I#inst.a, #table{}, Stack),
+            % doesn't really apply here...
+            execloop(Towrap, Pc + 1, Top, Code, Stack2, Co);
+        % FORNLOOP
+        57 ->
+            Init = array:get(I#inst.a + 2, Stack),
+            Limit = array:get(I#inst.a, Stack),
+            Step = array:get(I#inst.a + 1, Stack),
+
+            Init2 = Init + Step,
+            Stack2 = array:set(I#inst.a + 2, Init2, Stack),
+
+            S = Step > 0,
+            Pci =
+                case S andalso Init =< Limit orelse not S andalso Init >= Limit of
+                    true -> I#inst.d + 1;
+                    _ -> 1
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack2, Co);
         % FASTCALL3
         60 ->
             % Skipped
