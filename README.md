@@ -1,2 +1,3 @@
 # erl
-Erlang is cool so
+
+Experimental Luau VM for Erlang

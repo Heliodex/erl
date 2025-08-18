@@ -223,7 +223,7 @@ movestack(Stack, Src, B, T) ->
     % array:from_list(array:to_list(Stack3) ++ array:to_list(Src2) ++ array:to_list(Stack4)).
     movestackloop(Stack2, Src, 0, B, T).
 
-call(Top, A, B, C, Towrap, Stack, Co) ->
+call(Top, A, B, C, _Towrap, Stack, Co) ->
     F = array:get(A, Stack),
 
     % TODO: uncallable types
@@ -682,11 +682,11 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
             error("Opcode " ++ integer_to_list(Op) ++ " not yet implemented")
     end.
 
-execute(Towrap, Stack, VargsList, Co) ->
+execute(Towrap, Stack, _VargsList, Co) ->
     % io:format("EXECUTINC~n"),
-    {P, Upvals} = {Towrap#toWrap.proto, Towrap#toWrap.upvals},
+    {P, _Upvals} = {Towrap#toWrap.proto, Towrap#toWrap.upvals},
 
-    {Code, LineInfo, Protos} = {P#proto.code, P#proto.instLineInfo, P#proto.protos},
+    {Code, _LineInfo, _Protos} = {P#proto.code, P#proto.instLineInfo, P#proto.protos},
 
     % Co2 = Co#coroutine{
     % 	dbg = Co#coroutine.dbg#
