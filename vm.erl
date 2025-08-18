@@ -137,6 +137,38 @@ a_unm(A) ->
             error("Failed to perform arithmetic (unm)")
     end.
 
+c_le(A, B) ->
+    try
+        A =< B
+    catch
+        error:_:_ ->
+            error("Failed to perform comparison (<=)")
+    end.
+
+c_lt(A, B) ->
+    try
+        A < B
+    catch
+        error:_:_ ->
+            error("Failed to perform comparison (<)")
+    end.
+
+c_gt(A, B) ->
+    try
+        A > B
+    catch
+        error:_:_ ->
+            error("Failed to perform comparison (>)")
+    end.
+
+c_ge(A, B) ->
+    try
+        A >= B
+    catch
+        error:_:_ ->
+            error("Failed to perform comparison (>=)")
+    end.
+
 falsy(V) ->
     V == nil orelse V == false.
 
@@ -234,11 +266,10 @@ call(Top, A, B, C, Towrap, Stack, Co) ->
 
 execloop(Towrap, Pc, Top, Code, Stack, Co) ->
     I = lists:nth(Pc + 1, Code),
-    Op = I#inst.opcode,
     % io:format("Executing opcode ~p at pc ~p with stack ~p ~p~n", [
-    %     Op, Pc, array:size(Stack), array:to_list(Stack)
+    %     I#inst.opcode, Pc, array:size(Stack), array:to_list(Stack)
     % ]),
-    case Op of
+    case I#inst.opcode of
         % NOP
         0 ->
             % Do nothing
@@ -267,6 +298,7 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
         % GETGLOBAL
         7 ->
             Kv = I#inst.k,
+			% io:format("GETGLOBAL ~p ~p~n", [Kv, Towrap#toWrap.env]),
 
             Stack2 =
                 case maps:find(Kv, exts()) of
@@ -389,9 +421,45 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
                         2
                 end,
             execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        28 ->
+            Pci =
+                case c_le(array:get(I#inst.a, Stack), array:get(I#inst.aux, Stack)) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        29 ->
+            Pci =
+                case c_lt(array:get(I#inst.a, Stack), array:get(I#inst.aux, Stack)) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
         30 ->
             Pci =
                 case array:get(I#inst.a, Stack) /= array:get(I#inst.aux, Stack) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        31 ->
+            Pci =
+                case c_gt(array:get(I#inst.a, Stack), array:get(I#inst.aux, Stack)) of
+                    true ->
+                        I#inst.d + 1;
+                    _ ->
+                        2
+                end,
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        32 ->
+            Pci =
+                case c_ge(array:get(I#inst.a, Stack), array:get(I#inst.aux, Stack)) of
                     true ->
                         I#inst.d + 1;
                     _ ->
@@ -609,7 +677,9 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
                     true -> I#inst.d + 1;
                     _ -> 2
                 end,
-            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co)
+            execloop(Towrap, Pc + Pci, Top, Code, Stack, Co);
+        Op ->
+            error("Opcode " ++ integer_to_list(Op) ++ " not yet implemented")
     end.
 
 execute(Towrap, Stack, VargsList, Co) ->

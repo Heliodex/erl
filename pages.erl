@@ -34,11 +34,44 @@ render(SessionID, Code, Out) ->
             "</head>"
             "<body>"
             "	<h1>Hello, world!</h1>"
+            "	<h2>Try some examples</h2>"
+            "	<ul>"
+            "		<li><form method=\"post\">"
+            "			<textarea style=\"display:none\" name=\"code\">print \"Hello, world!\"</textarea>"
+            "   		<button type=\"submit\">Hello world</button>"
+            "		</form></li>"
+            "		<li><form method=\"post\">"
+            "			<textarea style=\"display:none\" name=\"code\">print(33 + 53)\n"
+            "print(33 - 53)\n"
+            "print(33 * 53)\n"
+            "print(33 / 53)\n"
+            "print(33 % 53)\n"
+            "print(33 ^ 53)\n"
+            "print(33 // 53)\n"
+            "print(-5)</textarea>"
+            "   		<button type=\"submit\">Mathematics</button>"
+            "		</form></li>"
+            "		<li><form method=\"post\">"
+            "			<textarea style=\"display:none\" name=\"code\">local x: number = 0\n"
+            "while x < 10 do\n"
+            "	x += 1\n"
+            "	print(x)\n"
+            "end</textarea>"
+            "   		<button type=\"submit\">While loop</button>"
+            "		</form></li>"
+            "		<li><form method=\"post\">"
+            "			<textarea style=\"display:none\" name=\"code\">local t = {}\n"
+            "t.hello = \"world\"\n"
+            "print(t.hello)</textarea>"
+            "   		<button type=\"submit\">Table accesses</button>"
+            "		</form></li>"
+            "	</ul>"
+            "	<h2>Run code</h2>"
             "	<form method=\"post\">"
-            "		<textarea type=\"text\" name=\"code\" placeholder=\"Enter your code\" cols=\"30\" rows=\"10\">" ++
+            "		<textarea name=\"code\" placeholder=\"Enter your code\" cols=\"30\" rows=\"10\">" ++
             Code ++
             "</textarea>"
-            "		<button type=\"submit\">Submit</button>"
+            "		<button type=\"submit\">Run</button>"
             "	</form>"
             "	<output>"
             "		<pre>" ++ Out ++
@@ -80,7 +113,7 @@ runcode(Code) ->
         ReturnsList = array:to_list(Returns),
 
         {ok, Result} = file:read_file(FilenameExt),
-        io:format("Result: ~p~n", [Result]),
+        % io:format("Result: ~p~n", [Result]),
 
         binary_to_list(Result) ++ "\nReturns: " ++ lists:join(", ", ReturnsList)
     catch
@@ -91,8 +124,7 @@ runcode(Code) ->
 test(SessionID, Input) ->
     % io:format("SessionID: ~p~nInput: ~p~n", [SessionID, Input]),
 
-    Q = uri_string:dissect_query(Input),
-    case Q of
+    case uri_string:dissect_query(Input) of
         [] ->
             render(SessionID, "", "");
         [{"code", Code}] ->
@@ -108,7 +140,7 @@ test(SessionID, Input) ->
                 "	<title>Error</title>"
                 "</head>"
                 "<body>"
-                "	<h1>Invalid Input</h1>"
+                "	<h1>Invalid input</h1>"
                 "	<p>Please provide valid code.</p>"
                 "</body>"
                 "</html>"

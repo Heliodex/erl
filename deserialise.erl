@@ -302,7 +302,7 @@ checkkmode(I, K) ->
             };
         % B
         7 ->
-            I#inst{k = lists:nth(I#inst.b - 1, K)};
+            I#inst{k = lists:nth(I#inst.b + 1, K)};
         % AUX number low 16 bits ig
         8 ->
             % forgloop
@@ -446,7 +446,7 @@ readInst(Binary) ->
     case Opinfo#opinfo.hasAux of
         true ->
             {Aux, Rest2} = rUint32(Rest1),
-            {[I, #inst{aux = Aux}], true, Rest2};
+            {[I#inst{aux = Aux}, #inst{}], true, Rest2};
         false ->
             {[I], false, Rest1}
     end.
