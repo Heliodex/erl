@@ -721,7 +721,7 @@ deserialise(<<6:8, 3:8, Rest1/binary>>) ->
     };
 deserialise(<<6:8, _:8, _/binary>>) ->
     error("the types version of the provided bytecode is unsupported");
-deserialise(<<_:8, _/binary>>) ->
+deserialise(<<_/binary>>) ->
     error("the version of the provided bytecode is unsupported").
 
 expect(Got, Want) ->

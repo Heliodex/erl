@@ -41,7 +41,10 @@ get_data(Port, Sofar) ->
             after 1 ->
                 ok
             end,
-            list_to_binary(lists:flatten(Sofar))
+            receive
+                {Port, {exit_status, Code}} ->
+                    {Code, lists:flatten(Sofar)}
+            end
     end.
 
 my_exec(Command) ->
@@ -70,8 +73,17 @@ compile(C, Path) ->
                 end
         end,
 
-    Bin = luauCompile(Pathext, C#compiler.o),
+    % io:format("Compiling file: ~p~n", [Pathext]),
+
     % io:format("File content: ~p~n", [Bin]),
+    % check if List contains Pathext
+    Bin =
+        case luauCompile(Pathext, C#compiler.o) of
+            {0, List} ->
+                list_to_binary(List);
+            _ ->
+                error("Failed to compile file")
+        end,
 
     % dbgpath has the extension and all
     D = deserialise:deserialise(Bin),

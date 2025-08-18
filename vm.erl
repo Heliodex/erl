@@ -1,5 +1,5 @@
 -module(vm).
--export([start/0]).
+-export([start/0, fn/3, load/2]).
 
 -record(compiler, {o = 0}).
 
@@ -74,28 +74,68 @@
 }).
 
 a_add(A, B) ->
-    A + B.
+    try
+        A + B
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (add)")
+    end.
 
 a_sub(A, B) ->
-    A - B.
+    try
+        A - B
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (sub)")
+    end.
 
 a_mul(A, B) ->
-    A * B.
+    try
+        A * B
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (mul)")
+    end.
 
 a_div(A, B) ->
-    A / B.
+    try
+        A / B
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (div)")
+    end.
 
 a_mod(A, B) ->
-    A - B * math:floor(A / B).
+    try
+        A - B * math:floor(A / B)
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (mod)")
+    end.
 
 a_pow(A, B) ->
-    math:pow(A, B).
+    try
+        math:pow(A, B)
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (pow)")
+    end.
 
 a_idiv(A, B) ->
-    math:floor(A / B).
+    try
+        math:floor(A / B)
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (idiv)")
+    end.
 
 a_unm(A) ->
-    -A.
+    try
+        -A
+    catch
+        error:_:_ ->
+            error("Failed to perform arithmetic (unm)")
+    end.
 
 falsy(V) ->
     V == nil orelse V == false.
@@ -573,6 +613,7 @@ execloop(Towrap, Pc, Top, Code, Stack, Co) ->
     end.
 
 execute(Towrap, Stack, VargsList, Co) ->
+    % io:format("EXECUTINC~n"),
     {P, Upvals} = {Towrap#toWrap.proto, Towrap#toWrap.upvals},
 
     {Code, LineInfo, Protos} = {P#proto.code, P#proto.instLineInfo, P#proto.protos},
